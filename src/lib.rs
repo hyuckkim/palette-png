@@ -1,6 +1,229 @@
-use wasm_bindgen::prelude::*;
+extern crate console_error_panic_hook;
+use std::mem::MaybeUninit;
+use bit_vec::BitVec;
+use deflate;
 
+use imagequant::{Attributes, RGBA};
+use js_sys::{Uint8ClampedArray};
+use wasm_bindgen::prelude::*;
+use rgb::*;
+
+#[wasm_bindgen]
+extern {
+
+}
 #[wasm_bindgen]
 pub fn ten() -> i32 {
     10
+}
+#[wasm_bindgen]
+pub fn quantize(
+    rawimage: Uint8ClampedArray, 
+    image_width: usize, 
+    image_height: usize, 
+    num_color: u32,
+    dithering: f32) -> Uint8ClampedArray {
+    console_error_panic_hook::set_once();
+
+    let imgvec = rawimage.to_vec();
+    let image_buffer: &[RGBA] = imgvec.as_rgba();
+    let size = image_width * image_height;
+    
+    let attr = set_attritubes(num_color);
+
+    let mut img = attr.new_image(
+        image_buffer,
+        image_width,
+        image_height,
+        0.0
+    ).unwrap();
+    let mut res = attr.quantize(&mut img).unwrap();
+    res.set_dithering_level(dithering).unwrap();
+
+    let mut image8bit: Vec<MaybeUninit<u8>> = vec![MaybeUninit::uninit(); size];
+    res.remap_into(&mut img, &mut image8bit).unwrap();
+    let pal = res.palette();
+    
+    let png = build_png(image_width as u32, image_height as u32,
+        pal, image8bit);
+    packaging(png)
+}
+fn set_attritubes(num_color: u32) -> Attributes {
+    let mut attr = Attributes::new();
+    attr.set_max_colors(num_color).unwrap();
+    attr.set_quality(0, 80).unwrap();
+    attr
+}
+fn build_png(width: u32, height: u32, pal: &[RGBA], bits: Vec<MaybeUninit<u8>>) -> Vec<u8> {
+    let mut result: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+    let bit_depth = get_bit_depth_by(pal.len());
+
+    let crc = W3Crc::make_crc_table();
+    result.append(&mut 
+        make_ihdr(width, height, bit_depth)
+        .data(&crc));
+    result.append(&mut 
+        make_plte(pal)
+        .data(&crc));
+    result.append(&mut 
+        make_idat(width, bits, bit_depth, &crc)
+        .data(&crc));
+
+    let iend = Chunk::new(*b"IEND");
+    result.append(&mut iend.data(&crc));
+
+    result
+}
+fn make_ihdr(width: u32, height:u32, bit_depth: u8) -> Chunk {
+    let mut chunk = Chunk::new(*b"IHDR");
+    let (colour_type, compression_method, filter_method, interlace_method)
+     = (3, 0, 0, 0);
+
+    chunk.insert_u32(width);
+    chunk.insert_u32(height);
+    chunk.insert_bytes(&[
+        bit_depth, 
+        colour_type, 
+        compression_method, 
+        filter_method, 
+        interlace_method]);
+
+    chunk
+}
+fn make_plte(palette: &[RGBA]) -> Chunk {
+    let mut chunk = Chunk::new(*b"PLTE");
+    for color in palette {
+        chunk.insert_bytes(&[color.r, color.g, color.b]);
+    }
+    chunk
+}
+fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8, crc: &W3Crc) -> Chunk {
+    let mut chunk = Chunk::new(*b"IDAT");
+
+    let mut count = 0;
+    let mut vec= BitVec::new();
+    for bit in bits {
+        if count == 0 {
+            chunk.insert_u8(0);
+            vec = BitVec::new();
+        }
+        push_bits(&mut vec, bit, bit_depth);
+        count += 1;
+        if count >= scanline {
+            count = 0;
+            chunk.insert_bytes(&vec.to_bytes());
+        }
+    }
+    chunk.deflate_encode(crc);
+
+    chunk
+}
+fn push_bits(vec: &mut BitVec, value: MaybeUninit<u8>, bit_depth: u8) {
+    unsafe {
+        let current= value.assume_init();
+        for i in (0..bit_depth).rev() {
+            vec.push((current >> i) % 2 == 1);
+        }
+    }
+}
+fn packaging(vec: Vec<u8>) -> Uint8ClampedArray {
+    let array = Uint8ClampedArray::new_with_length(vec.len() as u32);
+    for i in 0..vec.len() {
+        array.set_index(i as u32, vec[i]);
+    }
+    array
+}
+fn get_bit_depth_by(palettes: usize) -> u8 {
+    match palettes {
+        0 => panic!("palette's size cannot zero"),
+        1..=2 => 1,
+        3..=4 => 2,
+        5..=16 => 4,
+        _ => 8,
+    }
+}
+struct Chunk {
+    name: [u8; 4],
+    bit: Vec<u8>,
+}
+
+impl Chunk {
+    fn new(name: [u8; 4]) -> Self {
+        Chunk {
+            name,
+            bit: Vec::new(),
+        }
+    }
+    fn data(&self, crc: &W3Crc) -> Vec<u8> {
+        let mut result: Vec<u8> = Vec::new();
+
+        result.append(&mut (self.bit.len() as u32).to_be_bytes().to_vec());
+        result.append(&mut self.name.to_vec());
+        result.append(&mut self.bit.to_owned());
+        let merge: Vec<u8> = 
+            self.name
+                .to_vec().into_iter().chain(
+            self.bit
+                .to_owned().into_iter())
+            .collect();
+        result.append(&mut 
+            crc.crc(&merge)
+            .to_be_bytes().to_vec());
+
+        result
+    }
+    fn insert_u8(&mut self, data: u8) {
+        self.bit.push(data);
+    }
+    fn insert_u32(&mut self, data: u32) {
+        self.bit.append(&mut data.to_be_bytes().to_vec());
+    }
+    fn insert_bytes(&mut self, data: &[u8]) {
+        for d in data {
+            self.insert_u8(*d);
+        }
+    }
+    fn deflate_encode(&mut self, crc: &W3Crc) {
+        let (cmf, flg)
+         = (0x78, 0xDA);
+        let mut compressed = deflate::deflate_bytes(&self.bit);
+        let hash = crc.crc(&self.bit);
+        self.bit = Vec::new();
+        self.insert_bytes(&[cmf, flg]);
+        self.bit.append(&mut compressed);
+        self.insert_u32(hash);
+    }
+}
+struct W3Crc {
+    table: [u32; 256]
+}
+impl W3Crc {
+    fn make_crc_table() -> Self {
+        let mut table = W3Crc {table: [0; 256]};
+        let mut c: u32;
+
+        for n in 0..256 {
+          c = n;
+          for _ in 0..8 {
+            if c % 2 == 1 {
+                c = 0xedb88320 ^ (c >> 1);
+            }
+            else {
+                c = c >> 1;
+            }
+          }
+          table.table[n as usize] = c;
+        }
+        table
+    }
+    fn update_crc(&self, crc: u32, buf: &[u8]) -> u32 {
+        let mut c = crc;
+        for n in 0..buf.len() {
+            c = self.table[((c ^ buf[n as usize] as u32) & 0xff) as usize] ^ (c >> 8);
+        }
+        c
+    }
+    fn crc(&self, buf: &[u8]) -> u32 {
+        self.update_crc(0xffffffff, buf) ^ 0xffffffff
+    }
 }
