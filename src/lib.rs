@@ -227,3 +227,89 @@ impl W3Crc {
         self.update_crc(0xffffffff, buf) ^ 0xffffffff
     }
 }
+
+#[wasm_bindgen]
+pub fn read_palette(data: Uint8ClampedArray) -> Uint8ClampedArray {
+    let datavec = data.to_vec();
+
+    let mut i: usize = 8;
+    if datavec[0..8] != [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        Uint8ClampedArray::new_with_length(0)
+    }
+    else {
+        loop {
+            let length = merge_to_u32(&datavec[i..i+4]).unwrap();
+            i += 4;
+
+            if &datavec[i..i+4] == b"IDAT" {
+                break Uint8ClampedArray::new_with_length(0);
+            }
+            if &datavec[i..i+4] == b"PLTE" {
+                i += 4;
+                let colors = Uint8ClampedArray::new_with_length(length);
+                for j in 0..length {
+                    colors.set_index(j, datavec[i + j as usize]);
+                }
+                break colors;
+            }
+            i += 4 + length as usize + 4;
+        }
+    }
+}
+#[wasm_bindgen]
+pub fn change_palette(data: Uint8ClampedArray, index: u8, r: u8, g: u8, b: u8) 
+    -> Uint8ClampedArray {
+    let datavec = data.to_vec();
+
+    let mut i: usize = 8;
+    if datavec[0..8] != [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
+        Uint8ClampedArray::new_with_length(0)
+    }
+    else {
+        loop {
+            let length = merge_to_u32(&datavec[i..i+4]).unwrap();
+            i += 4;
+
+            if &datavec[i..i+4] == b"IDAT" {
+                break Uint8ClampedArray::new_with_length(0);
+            }
+            if &datavec[i..i+4] == b"PLTE" {
+                let mut newvec = datavec[i..i + length as usize + 4].to_vec();
+                let j = 4 + (index * 3) as usize;
+                newvec[j + 0] = r;
+                newvec[j + 1] = g;
+                newvec[j + 2] = b;
+                let result = Uint8ClampedArray::new_with_length(datavec.len() as u32);
+                for ii in 0..i {
+                    result.set_index(ii as u32, datavec[ii]);
+                }
+                for ii in 0..newvec.len() {
+                    result.set_index((i + ii) as u32, newvec[ii]);
+                }
+                let crc = W3Crc::make_crc_table();
+                let crc = crc.crc(&newvec).to_be_bytes();
+                for ii in 0..4 {
+                    result.set_index((i + newvec.len() + ii) as u32, crc[ii]);
+                }
+                for ii in (i + newvec.len() + 4)..datavec.len() {
+                    result.set_index(ii as u32, datavec[ii]);
+                }
+                break result;
+            }
+            i += 4 + length as usize + 4;
+        }
+    }
+}
+fn merge_to_u32(data: &[u8]) -> Option<u32>{
+    if data.len() > 4 { 
+        None
+    }
+    else {
+        let mut result: u32 = 0;
+
+        for i in data {
+            result = result * 256 + *i as u32;
+        }
+        Some(result)
+    }
+}
