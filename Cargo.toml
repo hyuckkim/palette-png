@@ -1,11 +1,11 @@
 [package]
-name = "hello-wasm"
+name = "palette-png"
 version = "0.1.0"
 edition = "2021"
 authors = ["hyuckkim <monkeyhyuck@naver.com>"]
-description = "A sample project with wasm-pack"
+description = "make image pixelized with webassembly"
 license = "MIT/apache-2.0"
-repository = "https://github.com/hyuckkim/hello-wasm"
+repository = "https://github.com/hyuckkim/palette-png"
 
 [lib]
 crate-type = ["cdylib"]
