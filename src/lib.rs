@@ -1,7 +1,5 @@
 extern crate console_error_panic_hook;
 use std::mem::MaybeUninit;
-use bit_vec::BitVec;
-use deflate;
 
 use imagequant::{Attributes, RGBA};
 use js_sys::{Uint8ClampedArray};
@@ -58,71 +56,130 @@ fn build_png(width: u32, height: u32, pal: &[RGBA], bits: Vec<MaybeUninit<u8>>) 
     let mut result: Vec<u8> = vec![0x89, 0x50, 0x4E, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
     let bit_depth = get_bit_depth_by(pal.len());
 
-    let crc = W3Crc::make_crc_table();
+    let crc = w3crc::W3Crc::make_crc_table();
     result.append(&mut 
-        make_ihdr(width, height, bit_depth)
+        chunks::make_ihdr(width, height, bit_depth)
         .data(&crc));
     result.append(&mut 
-        make_plte(pal)
+         chunks::make_plte(pal)
         .data(&crc));
     result.append(&mut 
-        make_idat(width, bits, bit_depth, &crc)
+        chunks::make_idat(width, bits, bit_depth, &crc)
         .data(&crc));
 
-    let iend = Chunk::new(*b"IEND");
+    let iend = chunks::Chunk::new(*b"IEND");
     result.append(&mut iend.data(&crc));
 
     result
 }
-fn make_ihdr(width: u32, height:u32, bit_depth: u8) -> Chunk {
-    let mut chunk = Chunk::new(*b"IHDR");
-    let (colour_type, compression_method, filter_method, interlace_method)
-     = (3, 0, 0, 0);
+mod chunks {
+    use std::mem::MaybeUninit;
+    use crate::w3crc::W3Crc;
+    use bit_vec::BitVec;
+    use rgb::RGBA;
 
-    chunk.insert_u32(width);
-    chunk.insert_u32(height);
-    chunk.insert_bytes(&[
-        bit_depth, 
-        colour_type, 
-        compression_method, 
-        filter_method, 
-        interlace_method]);
+    pub fn make_ihdr(width: u32, height:u32, bit_depth: u8) -> Chunk {
+        let mut chunk = Chunk::new(*b"IHDR");
+        let (colour_type, compression_method, filter_method, interlace_method)
+        = (3, 0, 0, 0);
 
-    chunk
-}
-fn make_plte(palette: &[RGBA]) -> Chunk {
-    let mut chunk = Chunk::new(*b"PLTE");
-    for color in palette {
-        chunk.insert_bytes(&[color.r, color.g, color.b]);
+        chunk.insert_u32(width);
+        chunk.insert_u32(height);
+        chunk.insert_bytes(&[
+            bit_depth, 
+            colour_type, 
+            compression_method, 
+            filter_method, 
+            interlace_method]);
+
+        chunk
     }
-    chunk
-}
-fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8, crc: &W3Crc) -> Chunk {
-    let mut chunk = Chunk::new(*b"IDAT");
-
-    let mut count = 0;
-    let mut vec= BitVec::new();
-    for bit in bits {
-        if count == 0 {
-            chunk.insert_u8(0);
-            vec = BitVec::new();
+    pub fn make_plte(palette: &[RGBA<u8>]) -> Chunk {
+        let mut chunk = Chunk::new(*b"PLTE");
+        for color in palette {
+            chunk.insert_bytes(&[color.r, color.g, color.b]);
         }
-        push_bits(&mut vec, bit, bit_depth);
-        count += 1;
-        if count >= scanline {
-            count = 0;
-            chunk.insert_bytes(&vec.to_bytes());
+        chunk
+    }
+    pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8, crc: &W3Crc) -> Chunk {
+        let mut chunk = Chunk::new(*b"IDAT");
+
+        let mut count = 0;
+        let mut vec= BitVec::new();
+        for bit in bits {
+            if count == 0 {
+                chunk.insert_u8(0);
+                vec = BitVec::new();
+            }
+            push_bits(&mut vec, bit, bit_depth);
+            count += 1;
+            if count >= scanline {
+                count = 0;
+                chunk.insert_bytes(&vec.to_bytes());
+            }
+        }
+        chunk.deflate_encode(crc);
+        
+        chunk
+    }
+    fn push_bits(vec: &mut BitVec, value: MaybeUninit<u8>, bit_depth: u8) {
+        unsafe {
+            let current= value.assume_init();
+            for i in (0..bit_depth).rev() {
+                vec.push((current >> i) % 2 == 1);
+            }
         }
     }
-    chunk.deflate_encode(crc);
-
-    chunk
-}
-fn push_bits(vec: &mut BitVec, value: MaybeUninit<u8>, bit_depth: u8) {
-    unsafe {
-        let current= value.assume_init();
-        for i in (0..bit_depth).rev() {
-            vec.push((current >> i) % 2 == 1);
+    pub struct Chunk {
+        name: [u8; 4],
+        bit: Vec<u8>,
+    }
+    
+    impl Chunk {
+        pub fn new(name: [u8; 4]) -> Self {
+            Chunk {
+                name,
+                bit: Vec::new(),
+            }
+        }
+        pub fn data(&self, crc: &W3Crc) -> Vec<u8> {
+            let mut result: Vec<u8> = Vec::new();
+    
+            result.append(&mut (self.bit.len() as u32).to_be_bytes().to_vec());
+            result.append(&mut self.name.to_vec());
+            result.append(&mut self.bit.to_owned());
+            let merge: Vec<u8> = 
+                self.name
+                    .to_vec().into_iter().chain(
+                self.bit
+                    .to_owned().into_iter())
+                .collect();
+            result.append(&mut 
+                crc.crc(&merge)
+                .to_be_bytes().to_vec());
+    
+            result
+        }
+        pub fn insert_u8(&mut self, data: u8) {
+            self.bit.push(data);
+        }
+        pub fn insert_u32(&mut self, data: u32) {
+            self.bit.append(&mut data.to_be_bytes().to_vec());
+        }
+        pub fn insert_bytes(&mut self, data: &[u8]) {
+            for d in data {
+                self.insert_u8(*d);
+            }
+        }
+        pub fn deflate_encode(&mut self, crc: &W3Crc) {
+            let (cmf, flg)
+             = (0x78, 0xDA);
+            let mut compressed = deflate::deflate_bytes(&self.bit);
+            let hash = crc.crc(&self.bit);
+            self.bit = Vec::new();
+            self.insert_bytes(&[cmf, flg]);
+            self.bit.append(&mut compressed);
+            self.insert_u32(hash);
         }
     }
 }
@@ -142,92 +199,41 @@ fn get_bit_depth_by(palettes: usize) -> u8 {
         _ => 8,
     }
 }
-struct Chunk {
-    name: [u8; 4],
-    bit: Vec<u8>,
-}
+mod w3crc {
+    pub struct W3Crc {
+        table: [u32; 256]
+    }
+    impl W3Crc {
+        pub fn make_crc_table() -> Self {
+            let mut table = W3Crc {table: [0; 256]};
+            let mut c: u32;
 
-impl Chunk {
-    fn new(name: [u8; 4]) -> Self {
-        Chunk {
-            name,
-            bit: Vec::new(),
-        }
-    }
-    fn data(&self, crc: &W3Crc) -> Vec<u8> {
-        let mut result: Vec<u8> = Vec::new();
-
-        result.append(&mut (self.bit.len() as u32).to_be_bytes().to_vec());
-        result.append(&mut self.name.to_vec());
-        result.append(&mut self.bit.to_owned());
-        let merge: Vec<u8> = 
-            self.name
-                .to_vec().into_iter().chain(
-            self.bit
-                .to_owned().into_iter())
-            .collect();
-        result.append(&mut 
-            crc.crc(&merge)
-            .to_be_bytes().to_vec());
-
-        result
-    }
-    fn insert_u8(&mut self, data: u8) {
-        self.bit.push(data);
-    }
-    fn insert_u32(&mut self, data: u32) {
-        self.bit.append(&mut data.to_be_bytes().to_vec());
-    }
-    fn insert_bytes(&mut self, data: &[u8]) {
-        for d in data {
-            self.insert_u8(*d);
-        }
-    }
-    fn deflate_encode(&mut self, crc: &W3Crc) {
-        let (cmf, flg)
-         = (0x78, 0xDA);
-        let mut compressed = deflate::deflate_bytes(&self.bit);
-        let hash = crc.crc(&self.bit);
-        self.bit = Vec::new();
-        self.insert_bytes(&[cmf, flg]);
-        self.bit.append(&mut compressed);
-        self.insert_u32(hash);
-    }
-}
-struct W3Crc {
-    table: [u32; 256]
-}
-impl W3Crc {
-    fn make_crc_table() -> Self {
-        let mut table = W3Crc {table: [0; 256]};
-        let mut c: u32;
-
-        for n in 0..256 {
-          c = n;
-          for _ in 0..8 {
-            if c % 2 == 1 {
-                c = 0xedb88320 ^ (c >> 1);
+            for n in 0..256 {
+            c = n;
+            for _ in 0..8 {
+                if c % 2 == 1 {
+                    c = 0xedb88320 ^ (c >> 1);
+                }
+                else {
+                    c = c >> 1;
+                }
             }
-            else {
-                c = c >> 1;
+            table.table[n as usize] = c;
             }
-          }
-          table.table[n as usize] = c;
+            table
         }
-        table
-    }
-    fn update_crc(&self, crc: u32, buf: &[u8]) -> u32 {
-        let mut c = crc;
-        for n in 0..buf.len() {
-            c = self.table[((c ^ buf[n as usize] as u32) & 0xff) as usize] ^ (c >> 8);
+        pub fn update_crc(&self, crc: u32, buf: &[u8]) -> u32 {
+            let mut c = crc;
+            for n in 0..buf.len() {
+                c = self.table[((c ^ buf[n as usize] as u32) & 0xff) as usize] ^ (c >> 8);
+            }
+            c
         }
-        c
-    }
-    fn crc(&self, buf: &[u8]) -> u32 {
-        self.update_crc(0xffffffff, buf) ^ 0xffffffff
+        pub fn crc(&self, buf: &[u8]) -> u32 {
+            self.update_crc(0xffffffff, buf) ^ 0xffffffff
+        }
     }
 }
-
 #[wasm_bindgen]
 pub fn read_palette(data: Uint8ClampedArray) -> Uint8ClampedArray {
     let datavec = data.to_vec();
@@ -286,7 +292,7 @@ pub fn change_palette(data: Uint8ClampedArray, index: u8, r: u8, g: u8, b: u8)
                 for ii in 0..newvec.len() {
                     result.set_index((i + ii) as u32, newvec[ii]);
                 }
-                let crc = W3Crc::make_crc_table();
+                let crc = w3crc::W3Crc::make_crc_table();
                 let crc = crc.crc(&newvec).to_be_bytes();
                 for ii in 0..4 {
                     result.set_index((i + newvec.len() + ii) as u32, crc[ii]);
