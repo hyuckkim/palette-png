@@ -67,7 +67,7 @@ fn build_png(width: u32, height: u32, pal: &[RGBA], bits: Vec<MaybeUninit<u8>>) 
          chunks::make_plte(pal)
         .data(&crc));
     result.append(&mut 
-        chunks::make_idat(width, bits, bit_depth, &crc)
+        chunks::make_idat(width, bits, bit_depth)
         .data(&crc));
 
     let iend = chunks::Chunk::new(*b"IEND");

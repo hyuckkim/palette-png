@@ -27,7 +27,7 @@ pub fn make_plte(palette: &[RGBA<u8>]) -> Chunk {
     }
     chunk
 }
-pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8, crc: &W3Crc) -> Chunk {
+pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8) -> Chunk {
     let mut chunk = Chunk::new(*b"IDAT");
 
     let mut count = 0;
@@ -44,7 +44,7 @@ pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8, crc: 
             chunk.insert_bytes(&vec.to_bytes());
         }
     }
-    chunk.deflate_encode(crc);
+    chunk.deflate_encode();
     
     chunk
 }
@@ -97,11 +97,11 @@ impl Chunk {
             self.insert_u8(*d);
         }
     }
-    pub fn deflate_encode(&mut self, crc: &W3Crc) {
+    pub fn deflate_encode(&mut self) {
         let (cmf, flg)
             = (0x78, 0xDA);
         let mut compressed = deflate::deflate_bytes(&self.bit);
-        let hash = crc.crc(&self.bit);
+        let hash = W3Crc::adler32(&compressed, compressed.len() as u32);
         self.bit = Vec::new();
         self.insert_bytes(&[cmf, flg]);
         self.bit.append(&mut compressed);
