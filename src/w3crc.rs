@@ -1,22 +1,21 @@
 pub struct W3Crc {
-    table: [u32; 256]
+    table: [u32; 256],
 }
 impl W3Crc {
     pub fn make_crc_table() -> Self {
-        let mut table = W3Crc {table: [0; 256]};
+        let mut table = W3Crc { table: [0; 256] };
         let mut c: u32;
 
         for n in 0..256 {
-        c = n;
-        for _ in 0..8 {
-            if c % 2 == 1 {
-                c = 0xedb88320 ^ (c >> 1);
+            c = n;
+            for _ in 0..8 {
+                if c % 2 == 1 {
+                    c = 0xedb88320 ^ (c >> 1);
+                } else {
+                    c = c >> 1;
+                }
             }
-            else {
-                c = c >> 1;
-            }
-        }
-        table.table[n as usize] = c;
+            table.table[n as usize] = c;
         }
         table
     }
@@ -31,7 +30,7 @@ impl W3Crc {
         self.update_crc(0xffffffff, buf) ^ 0xffffffff
     }
 
-    pub fn adler32(buf: &[u8], len: u32) -> u32{
+    pub fn adler32(buf: &[u8], len: u32) -> u32 {
         Self::update_adler32(1, buf, len)
     }
     fn update_adler32(adler: u32, buf: &[u8], len: u32) -> u32 {
