@@ -12,11 +12,12 @@ pub fn make_ihdr(width: u32, height:u32, bit_depth: u8) -> Chunk {
     chunk.insert_u32(width);
     chunk.insert_u32(height);
     chunk.insert_bytes(&[
-        bit_depth, 
-        colour_type, 
-        compression_method, 
-        filter_method, 
-        interlace_method]);
+        bit_depth,
+        colour_type,
+        compression_method,
+        filter_method,
+        interlace_method,
+    ]);
 
     chunk
 }
@@ -31,7 +32,7 @@ pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8) -> Ch
     let mut chunk = Chunk::new(*b"IDAT");
 
     let mut count = 0;
-    let mut vec= BitVec::new();
+    let mut vec = BitVec::new();
     for bit in bits {
         if count == 0 {
             chunk.insert_u8(0);
@@ -45,12 +46,12 @@ pub fn make_idat(scanline: u32, bits: Vec<MaybeUninit<u8>>, bit_depth: u8) -> Ch
         }
     }
     chunk.deflate_encode();
-    
+
     chunk
 }
 fn push_bits(vec: &mut BitVec, value: MaybeUninit<u8>, bit_depth: u8) {
     unsafe {
-        let current= value.assume_init();
+        let current = value.assume_init();
         for i in (0..bit_depth).rev() {
             vec.push((current >> i) % 2 == 1);
         }
@@ -74,15 +75,13 @@ impl Chunk {
         result.append(&mut (self.bit.len() as u32).to_be_bytes().to_vec());
         result.append(&mut self.name.to_vec());
         result.append(&mut self.bit.to_owned());
-        let merge: Vec<u8> = 
-            self.name
-                .to_vec().into_iter().chain(
-            self.bit
-                .to_owned().into_iter())
+        let merge: Vec<u8> = self
+            .name
+            .to_vec()
+            .into_iter()
+            .chain(self.bit.to_owned().into_iter())
             .collect();
-        result.append(&mut 
-            crc.crc(&merge)
-            .to_be_bytes().to_vec());
+        result.append(&mut crc.crc(&merge).to_be_bytes().to_vec());
 
         result
     }
