@@ -29,18 +29,4 @@ impl W3Crc {
     pub fn crc(&self, buf: &[u8]) -> u32 {
         self.update_crc(0xffffffff, buf) ^ 0xffffffff
     }
-
-    pub fn adler32(buf: &[u8], len: u32) -> u32{
-        Self::update_adler32(1, buf, len)
-    }
-    fn update_adler32(adler: u32, buf: &[u8], len: u32) -> u32 {
-        let mut s1 = adler & 0xffff;
-        let mut s2 = (adler >> 16) & 0xffff;
-
-        for n in 0..len {
-            s1 = (s1 + (buf[n as usize] as u32)) % 65521;
-            s2 = (s2 + s1) % 65521;
-        }
-        (s2 << 16) + s1
-    }
 }

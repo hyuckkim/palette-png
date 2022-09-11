@@ -1,13 +1,11 @@
-
-use std::mem::MaybeUninit;
 use crate::w3crc::W3Crc;
 use bit_vec::BitVec;
 use rgb::RGBA;
+use std::mem::MaybeUninit;
 
-pub fn make_ihdr(width: u32, height:u32, bit_depth: u8) -> Chunk {
+pub fn make_ihdr(width: u32, height: u32, bit_depth: u8) -> Chunk {
     let mut chunk = Chunk::new(*b"IHDR");
-    let (colour_type, compression_method, filter_method, interlace_method)
-    = (3, 0, 0, 0);
+    let (colour_type, compression_method, filter_method, interlace_method) = (3, 0, 0, 0);
 
     chunk.insert_u32(width);
     chunk.insert_u32(height);
@@ -97,8 +95,7 @@ impl Chunk {
         }
     }
     pub fn deflate_encode(&mut self) {
-        let (cmf, flg)
-            = (0x78, 0x9c);
+        let (cmf, flg) = (0x78, 0x9c);
         let mut compressed = deflate::deflate_bytes(&self.bit);
         let adler = adler32::RollingAdler32::from_buffer(&self.bit);
         self.bit = Vec::new();
