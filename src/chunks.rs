@@ -99,12 +99,12 @@ impl Chunk {
     }
     pub fn deflate_encode(&mut self) {
         let (cmf, flg)
-            = (0x78, 0xDA);
+            = (0x78, 0x9c);
         let mut compressed = deflate::deflate_bytes(&self.bit);
-        let hash = W3Crc::adler32(&compressed, compressed.len() as u32);
+        let adler = adler32::RollingAdler32::from_buffer(&self.bit);
         self.bit = Vec::new();
         self.insert_bytes(&[cmf, flg]);
         self.bit.append(&mut compressed);
-        self.insert_u32(hash);
+        self.insert_u32(adler.hash());
     }
 }
