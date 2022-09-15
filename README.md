@@ -3,7 +3,7 @@
 [Online-ModernArt-Maker](https://github.com/hyuckkim/Online-ModernArt-Maker)에서 쓰려고 만들었습니다.
 
 ## build
-`wasm-pack build --target web`  
+`wasm-pack build --target web --out-dir ../pkg`  
 pkg 폴더가 생성됩니다.
 ## functions
 
