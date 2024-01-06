@@ -20,7 +20,8 @@ quantize(
   image_width: usize, 
   image_height: usize, 
   num_color: u32,
-  dithering: f32)
+  dithering: f32,
+  gamma: f64)
   -> Uint8ClampedArray 
 ```
 이미지 데이터를 quantize 라이브러리를 사용해 픽셀 데이터로 바꿉니다.
@@ -31,6 +32,8 @@ rawimage, image_width, image_height는 javascript의 imagedata의 요소들입�
 num_color는 팔레트에서 몇 색을 쓸 지를 나타냅니다.
 
 dithering은 사진의 디터링 품질을 결정합니다. 0에서 1 사이입니다.
+
+gamma는 팔레트 색상 선택 시 민감도를 결정합니다. 0에서 1 사이입니다.
 
 반환된 값은 팔레트를 가지는 png 이미지입니다. 자바스크립트 쪽에서는 그대로 Blob 만들어서 쓰면 됩니다.
 

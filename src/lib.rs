@@ -22,6 +22,7 @@ pub fn quantize(
     image_height: usize,
     num_color: u32,
     dithering: f32,
+    gamma: f64,
 ) -> Uint8ClampedArray {
     console_error_panic_hook::set_once();
 
@@ -32,7 +33,7 @@ pub fn quantize(
     let attr = set_attritubes(num_color);
 
     let mut img = attr
-        .new_image(image_buffer, image_width, image_height, 0.0)
+        .new_image(image_buffer, image_width, image_height, gamma)
         .unwrap();
     let mut res = attr.quantize(&mut img).unwrap();
     res.set_dithering_level(dithering).unwrap();
