@@ -23,6 +23,7 @@ pub fn quantize(
     num_color: u32,
     dithering: f32,
     gamma: f64,
+    fixed: Option<Uint8ClampedArray>,
 ) -> Uint8ClampedArray {
     console_error_panic_hook::set_once();
 
@@ -35,6 +36,21 @@ pub fn quantize(
     let mut img = attr
         .new_image(image_buffer, image_width, image_height, gamma)
         .unwrap();
+
+    if let Some(fixed_arr) = fixed {
+        let fixed_vec = fixed_arr.to_vec();
+
+        for chunk in fixed_vec.chunks_exact(4) {
+            let color = RGBA {
+                r: chunk[0],
+                g: chunk[1],
+                b: chunk[2],
+                a: chunk[3],
+            };
+            let _ = img.add_fixed_color(color);
+        }
+    }
+    
     let mut res = attr.quantize(&mut img).unwrap();
     res.set_dithering_level(dithering).unwrap();
 
